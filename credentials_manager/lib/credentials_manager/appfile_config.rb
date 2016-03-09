@@ -131,7 +131,7 @@ module CredentialsManager
       end
 
       if ENV["FASTLANE_LANE_NAME"] == lane_name.to_s
-        block.call
+        yield
       end
     end
 
@@ -144,7 +144,7 @@ module CredentialsManager
     #             be applied.
     def for_platform(platform_name, &block)
       if ENV["FASTLANE_PLATFORM_NAME"] == platform_name.to_s
-        block.call
+        yield
       end
     end
 
