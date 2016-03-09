@@ -103,7 +103,7 @@ task :test_all do
   end
 
   bundle_install
-  ["fastlane", "deliver"].each do |repo|
+  GEMS.each do |repo|
     box "Testing #{repo}"
     Dir.chdir(repo) do
       FileUtils.rm_f(log_file)
@@ -127,7 +127,7 @@ task :test_all do
   example_count = 0
   duration = 0.0
 
-  ["fastlane", "deliver"].each do |gem_name|
+  GEMS.each do |gem_name|
     failures[gem_name] = []
     log = File.join(gem_name, log_file)
     file_text = File.read(log)
