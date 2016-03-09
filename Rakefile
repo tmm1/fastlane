@@ -1,4 +1,3 @@
-
 GEMS = %w(fastlane fastlane_core deliver snapshot frameit pem sigh produce cert gym pilot credentials_manager spaceship scan supply watchbuild match screengrab)
 RAILS = %w(boarding refresher enhancer)
 
@@ -91,7 +90,12 @@ end
 
 task :test_all do
   exceptions = []
-  require 'bundler'
+  repos_with_exceptions = []
+  log_file = "rspec_logs.json"
+  require 'bundler/setup'
+  require 'colored'
+  require 'fileutils'
+  require 'json'
 
   def bundle_install
     cache_path = File.expand_path("/tmp/vendor/bundle")
@@ -99,33 +103,78 @@ task :test_all do
   end
 
   bundle_install
-  GEMS.each do |repo|
+  ["fastlane", "deliver"].each do |repo|
     box "Testing #{repo}"
     Dir.chdir(repo) do
+      FileUtils.rm_f(log_file)
       begin
         # From https://github.com/bundler/bundler/issues/1424#issuecomment-2123080
         # Since we nest bundle exec in bundle exec
         Bundler.with_clean_env do
           bundle_install
-          sh "bundle exec rspec"
           sh "bundle exec rubocop"
+          sh "bundle exec rspec --format documentation --format j --out #{log_file}"
         end
       rescue => ex
         puts "[[FAILURE]] with repo '#{repo}' due to\n\n#{ex}\n\n"
         exceptions << "#{repo}: #{ex}"
+        repos_with_exceptions << repo
       end
     end
   end
 
-  if exceptions.count > 0
-    puts "--------------------"
-    puts "#{exceptions.count} failure(s)"
-    puts "--------------------"
-    puts exceptions.join("\n")
-    raise "Tests failed, search test log for [[FAILURE]] to find the outputs"
-  else
-    puts "Success"
+  failures = {}
+  example_count = 0
+  duration = 0.0
+
+  ["fastlane", "deliver"].each do |gem_name|
+    failures[gem_name] = []
+    log = File.join(gem_name, log_file)
+    file_text = File.read(log)
+    log_json = JSON.parse(file_text)
+    results = log_json["examples"]
+    failures[gem_name] += results.select { |r| r["status"] == "failed" }
+    summary = log_json["summary"]
+    example_count += summary["example_count"]
+    duration += summary["duration"]
   end
+
+  failure_messages = failures.reduce([]) do |memo, (gem_name, failures)|
+    memo += failures.map do |f|
+      original_file_path = f["file_path"]
+      file_path = original_file_path.sub(".", gem_name)
+      "#{file_path}:#{f["line_number"]}".red + " # #{f["full_description"]}".cyan
+    end
+  end
+
+  puts ("*" * 80).yellow
+  box "#{exceptions.count} repo(s) with test failures: " + repos_with_exceptions.join(", ") unless failure_messages.empty?
+  puts format_failures(failures)
+  puts "\nSummary:\n"
+  puts "Finished in #{duration.round(3)} seconds"
+  puts "#{example_count} examples, #{failure_messages.count} failure(s)\n".send(failure_messages.empty? ? :green : :red)
+  puts "Failed examples:" unless failure_messages.empty?
+  puts "#{failure_messages.join("\n")}\n" unless failure_messages.empty?
+
+  if exceptions.empty?
+    puts "Success 🚀".green
+  else
+    box "Exceptions"
+    puts exceptions.join("\n")
+  end
+
+end
+
+def format_failures(failures)
+  printable = []
+  failures.values.flatten.each_with_index do |failure, index|
+    string = index == 0 ? "\n" : ""
+    string += "#{index + 1}) #{failure["full_description"]}\n"
+    string += "Failure/Error: \n".red
+    string += "#{failure["exception"]["message"]}".red
+    printable << string
+  end
+  printable
 end
 
 desc 'Fetch the latest rubocop config and apply&test it for all gems'
